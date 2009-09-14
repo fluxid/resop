@@ -1,0 +1,143 @@
+#!/usr/bin/env python
+# -*- encoding: utf-8 -*-
+
+import sys
+import re
+import os.path
+import gtk.gdk
+import shutil
+
+BASEAPPNAME = 'res'
+
+DOUBLE_RE = re.compile(r'^(\d+)[Xx](\d+)(?:-(\d+)[Xx](\d+))?$')
+SINGLE_RE = re.compile(r'^(\d+)(?:-(\d+))?$')
+
+COLOR_GREEN = 1
+COLOR_YELLOW = 2
+COLOR_RED = 3
+
+def pprint(text, color=COLOR_GREEN, stderr=False):
+    star = ' *'
+    if stderr:
+        std = sys.stderr
+    else:
+        std = sys.stdout
+
+    if std.isatty():
+        if color == 1:
+            star = ' \033[1;92m*\033[1;0m'
+        elif color == 2:
+            star = ' \033[1;93m*\033[1;0m'
+        elif color == 3:
+            star = ' \033[1;91m*\033[1;0m'
+    for line in text.splitlines():
+        print >>std, star, line
+
+class Destination(list):
+    def match(self, w, h):
+        for m in self:
+            mw, mh = m
+            if ( (not mw) or ((mw[0] <= w < mw[1]) if mw[1] > mw[0] else mw[0] == w) ) and ( (not mh) or ((mh[0] <= h < mh[1]) if mh[1] > mh[0] else mh[0] == h) ): return True
+        return False
+        
+def main():
+    args = sys.argv
+    opname = os.path.basename(args.pop(0))
+    op = 0
+
+    if not args:
+        print 'tu będzie help'
+        return
+
+    if opname == BASEAPPNAME+'mv':
+        op = 1
+    elif opname == BASEAPPNAME+'cp':
+        op = 2
+    elif args and args[0] in ('mv', 'cp'):
+        opname = args.pop(0)
+        op = 1 if opname == 'mv' else 2
+    else:
+        pprint('No operation given (cp/mv)', COLOR_RED, True)
+        return
+
+    rest_files = False
+    dests = []
+    adest = None
+
+    while args:
+        arg = args.pop(0)
+
+        if adest is None:
+            adest = Destination()
+
+        if arg[0] == '-':
+
+            if not args:
+                pprint('Not enough parameters', COLOR_RED, True)
+                return
+
+            w = 'w' in arg
+            h = 'h' in arg
+
+            if w or h:
+                arg = args.pop(0)
+            else:
+                continue # wtf ;)
+
+            if w and h:
+                match = DOUBLE_RE.match(arg)
+                if not match:
+                    pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                    return
+                w1, h1, w2, h2 = match.groups()
+                if not (w2 or h2):
+                    w2, h2 = w1, h1
+                adest.append( ((int(w1), int(w2)), (int(h1), int(h2))) )
+            elif w:
+                match = SINGLE_RE.match(arg)
+                if not match:
+                    pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                    return
+                w1, w2 = match.groups()
+                if not w2:
+                    w2 = w1
+                adest.append( ((int(w1), int(w2)), None) )
+            else:
+                match = SINGLE_RE.match(arg)
+                if not match:
+                    pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                    return
+                h1, h2 = match.groups()
+                if not h2:
+                    h2 = h1
+                adest.append( (None, (int(h1), int(h2))) )
+
+        elif adest:
+            adest.dest = arg
+            if not os.path.isdir(arg):
+                pprint('"%s" is not a directory or does not exist. Ignoring...' % arg, COLOR_YELLOW)
+                adest = None
+            elif not os.access(arg, os.W_OK | os.X_OK):
+                pprint('"%s" - permission denied. Ignoring...' % arg, COLOR_YELLOW)
+                adest = None
+            else:
+                dests.append(adest)
+                adest = None
+    if dests:
+        for file in os.listdir(os.getcwd()):
+            info = gtk.gdk.pixbuf_get_file_info(file)
+            if not info: continue
+            w, h = info[1], info[2]
+            for dest in dests:
+                if dest.match(w, h):
+                    pprint('%s (%dx%d) -> %s' % (file, w, h, dest.dest), COLOR_GREEN)
+                    if op == 1:
+                        shutil.move(file, dest.dest)
+                    elif op == 2:
+                        shutil.copy2(file, dest.dest)
+    else:
+        pprint('Nothing to do...', COLOR_YELLOW)
+
+if __name__ == "__main__":
+    main()
+
