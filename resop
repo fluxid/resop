@@ -145,8 +145,6 @@ def main():
                 for i in os.listdir(os.getcwd()):
                     yield i
 
-        print pipe
-
         for file in fileiter():
             info = gtk.gdk.pixbuf_get_file_info(file)
             if not info: continue
