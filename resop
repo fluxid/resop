@@ -63,6 +63,7 @@ def main():
     rest_files = False
     dests = []
     adest = None
+    pretend = False
 
     while args:
         arg = args.pop(0)
@@ -71,46 +72,50 @@ def main():
             adest = Destination()
 
         if arg[0] == '-':
-
-            if not args:
-                pprint('Not enough parameters', COLOR_RED, True)
-                return
-
-            w = 'w' in arg
-            h = 'h' in arg
-
-            if w or h:
-                arg = args.pop(0)
+            if arg == '--pretend':
+                pretend = True
             else:
-                continue # wtf ;)
 
-            if w and h:
-                match = DOUBLE_RE.match(arg)
-                if not match:
-                    pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                if not args:
+                    pprint('Not enough parameters', COLOR_RED, True)
                     return
-                w1, h1, w2, h2 = match.groups()
-                if not (w2 or h2):
-                    w2, h2 = w1, h1
-                adest.append( ((int(w1), int(w2)), (int(h1), int(h2))) )
-            elif w:
-                match = SINGLE_RE.match(arg)
-                if not match:
-                    pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
-                    return
-                w1, w2 = match.groups()
-                if not w2:
-                    w2 = w1
-                adest.append( ((int(w1), int(w2)), None) )
-            else:
-                match = SINGLE_RE.match(arg)
-                if not match:
-                    pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
-                    return
-                h1, h2 = match.groups()
-                if not h2:
-                    h2 = h1
-                adest.append( (None, (int(h1), int(h2))) )
+
+                w = 'w' in arg
+                h = 'h' in arg
+                if 'p' in arg: pretend = True
+
+                if w or h:
+                    arg = args.pop(0)
+                else:
+                    continue # wtf ;)
+
+                if w and h:
+                    match = DOUBLE_RE.match(arg)
+                    if not match:
+                        pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                        return
+                    w1, h1, w2, h2 = match.groups()
+                    if not (w2 or h2):
+                        w2, h2 = w1, h1
+                    adest.append( ((int(w1), int(w2)), (int(h1), int(h2))) )
+                elif w:
+                    match = SINGLE_RE.match(arg)
+                    if not match:
+                        pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                        return
+                    w1, w2 = match.groups()
+                    if not w2:
+                        w2 = w1
+                    adest.append( ((int(w1), int(w2)), None) )
+                else:
+                    match = SINGLE_RE.match(arg)
+                    if not match:
+                        pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
+                        return
+                    h1, h2 = match.groups()
+                    if not h2:
+                        h2 = h1
+                    adest.append( (None, (int(h1), int(h2))) )
 
         elif adest:
             adest.dest = arg
@@ -124,17 +129,36 @@ def main():
                 dests.append(adest)
                 adest = None
     if dests:
-        for file in os.listdir(os.getcwd()):
+
+        pipe = False
+        if not sys.stdin.isatty():
+            pipe = True
+            def fileiter():
+                while True:
+                    line = sys.stdin.readline()
+                    if line:
+                        line = line.strip()
+                        if line:
+                            yield line
+        else:
+            def fileiter():
+                for i in os.listdir(os.getcwd()):
+                    yield i
+
+        print pipe
+
+        for file in fileiter():
             info = gtk.gdk.pixbuf_get_file_info(file)
             if not info: continue
             w, h = info[1], info[2]
             for dest in dests:
                 if dest.match(w, h):
                     pprint('%s (%dx%d) -> %s' % (file, w, h, dest.dest), COLOR_GREEN)
-                    if op == 1:
-                        shutil.move(file, dest.dest)
-                    elif op == 2:
-                        shutil.copy2(file, dest.dest)
+                    if not pretend:
+                        if op == 1:
+                            shutil.move(file, dest.dest)
+                        elif op == 2:
+                            shutil.copy2(file, dest.dest)
     else:
         pprint('Nothing to do...', COLOR_YELLOW)
 
