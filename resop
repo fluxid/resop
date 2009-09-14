@@ -146,6 +146,7 @@ def main():
                     yield i
 
         for file in fileiter():
+            print 'lol, doing this: "%s"' % file
             info = gtk.gdk.pixbuf_get_file_info(file)
             if not info: continue
             w, h = info[1], info[2]
