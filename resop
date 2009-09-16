@@ -24,11 +24,11 @@ def pprint(text, color=COLOR_GREEN, stderr=False):
         std = sys.stdout
 
     if std.isatty():
-        if color == 1:
+        if color == COLOR_GREEN:
             star = ' \033[1;92m*\033[1;0m'
-        elif color == 2:
+        elif color == COLOR_YELLOW:
             star = ' \033[1;93m*\033[1;0m'
-        elif color == 3:
+        elif color == COLOR_RED:
             star = ' \033[1;91m*\033[1;0m'
     for line in text.splitlines():
         print >>std, star, line
@@ -43,11 +43,6 @@ class Destination(list):
 def main():
     args = sys.argv
     opname = os.path.basename(args.pop(0))
-    op = 0
-
-    if not args:
-        print 'tu będzie help'
-        return
 
     if opname == BASEAPPNAME+'mv':
         op = 1
@@ -59,6 +54,52 @@ def main():
     else:
         pprint('No operation given (cp/mv)', COLOR_RED, True)
         return
+    
+    if not args:
+        print """resop-0.1 - resolution based image mover/copier
+Copryght (c) 2009 Tomasz Kowalczyk
+
+Usage:
+    resop OPERATION [--pretend] MATCH DESTINATION [MATCH DESTINATION] ...
+
+Operations:
+    mv      moves image files
+    cp      copies image files
+
+Aliases:
+    rescp = resop cp
+    resmv = resop mv
+
+Matching:
+    -w      match image width
+    -h      match image height
+    -wh     width AND height
+
+    -(w|h) VALUE
+            (w|h) == VALUE
+    -(w|h) VALUE1-VALUE2
+            VALUE1 <= (w|h) < VALUE2
+    -wh WIDTHxHEIGHT
+            w == WIDTH AND h == HEIGHT
+    -wh WIDTH1xHEIGHT1-WIDTH2xHEIGHT2
+            WIDTH1 <= w < WIDTH2 AND
+            HEIGHT1 <= h < HEIGHT2
+
+Examples:
+    Move 1920x1200 images to folder 1920 and 1280x800 to 1280 folder:
+        resmv -wh 1920x1200 1920 -wh 1280x800 1280
+
+    Copy images to three size categories:
+        rescp -wh 0x0-1280x800 small /
+        -wh 1280x800-1920x1200 medium /
+        -wh 1920x1200-9999x9999 large
+
+    Copy images with width from 100 to 400:
+        rescp -w 100-401 somefolder
+"""
+        return
+
+    pipe = not sys.stdin.isatty()
 
     rest_files = False
     dests = []
@@ -82,7 +123,6 @@ def main():
 
                 w = 'w' in arg
                 h = 'h' in arg
-                if 'p' in arg: pretend = True
 
                 if w or h:
                     arg = args.pop(0)
@@ -98,67 +138,80 @@ def main():
                     if not (w2 or h2):
                         w2, h2 = w1, h1
                     adest.append( ((int(w1), int(w2)), (int(h1), int(h2))) )
-                elif w:
-                    match = SINGLE_RE.match(arg)
-                    if not match:
-                        pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
-                        return
-                    w1, w2 = match.groups()
-                    if not w2:
-                        w2 = w1
-                    adest.append( ((int(w1), int(w2)), None) )
                 else:
                     match = SINGLE_RE.match(arg)
                     if not match:
                         pprint('Invalid parameter: "%s"' % arg, COLOR_RED, True)
                         return
-                    h1, h2 = match.groups()
-                    if not h2:
-                        h2 = h1
-                    adest.append( (None, (int(h1), int(h2))) )
+                    v1, v2 = match.groups()
+                    if not v2:
+                        v2 = v1
+                    if w:
+                        adest.append( ((int(v1), int(v2)), None) )
+                    else:
+                        adest.append( (None, (int(v1), int(v2))) )
 
         elif adest:
             adest.dest = arg
             if not os.path.isdir(arg):
                 pprint('"%s" is not a directory or does not exist. Ignoring...' % arg, COLOR_YELLOW)
-                adest = None
+            elif not pipe and os.path.samefile(arg, os.getcwd()):
+                pprint('"%s" is same as current directory. Ignoring...' % arg, COLOR_YELLOW)
             elif not os.access(arg, os.W_OK | os.X_OK):
                 pprint('"%s" - permission denied. Ignoring...' % arg, COLOR_YELLOW)
-                adest = None
             else:
                 dests.append(adest)
-                adest = None
+            adest = None
     if dests:
 
-        pipe = False
-        if not sys.stdin.isatty():
-            pipe = True
-            def fileiter():
-                while True:
-                    line = sys.stdin.readline()
+        if pipe:
+            pprint('Please wait, reading list of files from stdin...', COLOR_YELLOW)
+            files = []
+            while True:
+                line = sys.stdin.readline()
+                if line:
+                    line = line.strip()
                     if line:
-                        line = line.strip()
-                        if line:
-                            yield line
-                    else:
-                        return
+                        files.append(line)
+                else:
+                    break
         else:
-            def fileiter():
-                for i in os.listdir(os.getcwd()):
-                    yield i
+            files = os.listdir(os.getcwd())
 
-        for file in fileiter():
-            info = gtk.gdk.pixbuf_get_file_info(file)
-            if not info: continue
-            w, h = info[1], info[2]
-            for dest in dests:
-                if dest.match(w, h):
-                    pprint('%s (%dx%d) -> %s' % (file, w, h, dest.dest), COLOR_GREEN)
-                    if not pretend:
-                        if op == 1:
-                            shutil.move(file, dest.dest)
-                        elif op == 2:
-                            shutil.copy2(file, dest.dest)
+        counter = 0
+
+        try:
+            for file in files:
+                info = gtk.gdk.pixbuf_get_file_info(file)
+                if not info: continue
+                w, h = info[1], info[2]
+                for dest in dests:
+                    if dest.match(w, h):
+                        tmptarget = os.path.join(dest.dest, os.path.basename(file))
+                        if os.path.exists(tmptarget):
+                            pprint('"%s" already exists. Ignoring...' % os.path.relpath(tmptarget), COLOR_YELLOW)
+                            continue
+                        else:
+                            pprint('%s (%dx%d) -> %s' % (file, w, h, dest.dest), COLOR_GREEN)
+                        if not pretend:
+                            if op == 1:
+                                shutil.move(file, dest.dest)
+                            elif op == 2:
+                                shutil.copy2(file, dest.dest)
+                            counter += 1
+        except KeyboardInterrupt:
+            pprint('Interrupted...', COLOR_YELLOW)
+        
+        if op == 1:
+            cstr = 'moved'
+        elif op == 2:
+            cstr = 'copied'
+
+        if counter:
+            pprint('%d files %s' % (counter, cstr), COLOR_GREEN)
+        else:
+            pprint('No files %s' % cstr, COLOR_YELLOW)
+
     else:
         pprint('Nothing to do...', COLOR_YELLOW)
 
